@@ -4,11 +4,12 @@ import sqlite3
 from datetime import datetime, timedelta
 import time
 
-# ---------- НАСТРОЙКИ ----------
-TOKEN = '8531867613:AAHxjS7JtTjoB0mgO_ntFTjakNFbVn2stuI'  # Ваш токен
+# ---------- НОВЫЙ ТОКЕН ----------
+TOKEN = '8561596225:AAHlM8q5mVRamck9oASQjL52v_AxcTqPzGI'
 bot = telebot.TeleBot(TOKEN)
 
-ADMIN_ID = 8052884471  # ID администратора (узнайте через @userinfobot)
+# ---------- НАСТРОЙКИ ----------
+ADMIN_ID = 8052884471          # Твой ID (проверь через @userinfobot)
 SUPPORT_USERNAME = 'Kurator111'
 REVIEWS_CHANNEL = '+DpdNmcj9gAY2MThi'
 
@@ -38,6 +39,7 @@ def init_db():
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
 
+    # Пользователи (обязательно с total_orders)
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
@@ -46,6 +48,7 @@ def init_db():
                   total_uc INTEGER DEFAULT 0,
                   total_orders INTEGER DEFAULT 0)''')
 
+    # Заказы
     c.execute('''CREATE TABLE IF NOT EXISTS orders
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   order_number INTEGER UNIQUE,
@@ -60,7 +63,7 @@ def init_db():
                   created_at TEXT,
                   completed_at TEXT)''')
 
-    # Таблица промокодов (без комментариев внутри SQL)
+    # Промокоды
     c.execute('''CREATE TABLE IF NOT EXISTS promocodes
                  (code TEXT PRIMARY KEY,
                   discount INTEGER,
@@ -70,6 +73,7 @@ def init_db():
                   active INTEGER DEFAULT 1,
                   created_at TEXT)''')
 
+    # Активированные пользователями промокоды
     c.execute('''CREATE TABLE IF NOT EXISTS user_promos
                  (user_id INTEGER,
                   promo_code TEXT,
@@ -92,7 +96,7 @@ def get_next_order_number():
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-# ---------- ОСНОВНОЕ МЕНЮ ----------
+# ---------- ГЛАВНОЕ МЕНЮ (С КНОПКОЙ ПРОМОКОД) ----------
 def main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn1 = types.KeyboardButton("🛒 КУПИТЬ UC")
@@ -100,7 +104,7 @@ def main_keyboard():
     btn3 = types.KeyboardButton("🏆 ЛИДЕРЫ")
     btn4 = types.KeyboardButton("⭐️ ОТЗЫВЫ")
     btn5 = types.KeyboardButton("📞 ПОДДЕРЖКА")
-    btn6 = types.KeyboardButton("🎟 ПРОМОКОД")
+    btn6 = types.KeyboardButton("🎟 ПРОМОКОД")          # ← кнопка добавлена
     markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     return markup
 
@@ -113,6 +117,7 @@ def start(message):
 
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
+    # Добавляем пользователя, если его нет (поля total_uc и total_orders по умолчанию 0)
     c.execute("""INSERT OR IGNORE INTO users 
                  (user_id, username, first_name, join_date, total_uc, total_orders) 
                  VALUES (?,?,?,?,?,?)""",
@@ -284,7 +289,6 @@ def process_promo_expiry(message, code, discount, max_uses):
     if days > 0:
         expires_at = str(datetime.now() + timedelta(days=days))
 
-    # Подтверждение
     markup = types.InlineKeyboardMarkup()
     btn_yes = types.InlineKeyboardButton("✅ Подтвердить", callback_data=f"promo_save:{code}:{discount}:{max_uses}:{expires_at or 'None'}")
     btn_no = types.InlineKeyboardButton("❌ Отмена", callback_data="promo_cancel")
@@ -764,7 +768,7 @@ def cancel_order(call):
         parse_mode='HTML'
     )
 
-# ---------- ПРОФИЛЬ ----------
+# ---------- МОЙ ПРОФИЛЬ ----------
 @bot.message_handler(func=lambda message: message.text == "👤 МОЙ ПРОФИЛЬ")
 def my_profile(message):
     user_id = message.from_user.id
