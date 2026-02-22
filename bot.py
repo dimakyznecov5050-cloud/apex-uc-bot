@@ -1,4 +1,3 @@
-```python
 import telebot
 from telebot import types
 import sqlite3
@@ -36,9 +35,8 @@ UC_PRICES = {
     8100: 8200
 }
 
-# ---------- БАЗА ДАННЫХ С МИГРАЦИЕЙ ----------
+# ---------- БАЗА ДАННЫХ ----------
 def get_table_columns(cursor, table_name):
-    """Возвращает список имен столбцов таблицы"""
     cursor.execute(f"PRAGMA table_info({table_name})")
     return [col[1] for col in cursor.fetchall()]
 
@@ -58,7 +56,6 @@ def init_db():
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
 
-    # Создаем таблицы, если их нет
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
@@ -90,15 +87,9 @@ def init_db():
                   activated_at TEXT,
                   PRIMARY KEY (user_id, promo_code))''')
 
-    # Миграция: добавляем недостающие столбцы
-    # Для users
     add_column_if_not_exists(c, 'users', 'total_orders', 'INTEGER', '0')
-    
-    # Для orders
     add_column_if_not_exists(c, 'orders', 'discount', 'INTEGER', '0')
     add_column_if_not_exists(c, 'orders', 'promocode', 'TEXT', 'NULL')
-    
-    # Для promocodes
     add_column_if_not_exists(c, 'promocodes', 'max_uses', 'INTEGER', '0')
     add_column_if_not_exists(c, 'promocodes', 'used_count', 'INTEGER', '0')
     add_column_if_not_exists(c, 'promocodes', 'expires_at', 'TEXT', 'NULL')
@@ -119,7 +110,6 @@ def get_next_order_number():
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-# ---------- ГЛАВНОЕ МЕНЮ ----------
 def main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn1 = types.KeyboardButton("🛒 КУПИТЬ UC")
@@ -131,7 +121,6 @@ def main_keyboard():
     markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     return markup
 
-# ---------- СТАРТ ----------
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
@@ -162,7 +151,6 @@ def start(message):
 """
     bot.send_message(message.chat.id, welcome_text, parse_mode='HTML', reply_markup=main_keyboard())
 
-# ---------- АДМИН-ПАНЕЛЬ ----------
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
     if not is_admin(message.from_user.id):
@@ -245,7 +233,6 @@ def promos_menu(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                           text="🎟 <b>Управление промокодами</b>", parse_mode='HTML', reply_markup=markup)
 
-# ---------- СОЗДАНИЕ ПРОМОКОДА ----------
 @bot.callback_query_handler(func=lambda call: call.data == "promo_create")
 def promo_create_step1(call):
     if not is_admin(call.from_user.id):
@@ -353,7 +340,6 @@ def promo_cancel(call):
                           text="❌ Создание отменено.", reply_markup=types.InlineKeyboardMarkup().add(
                               types.InlineKeyboardButton("◀️ Назад", callback_data="admin_promos")))
 
-# ---------- СПИСОК ПРОМОКОДОВ ----------
 @bot.callback_query_handler(func=lambda call: call.data == "promo_list")
 def promo_list(call):
     if not is_admin(call.from_user.id):
@@ -382,7 +368,6 @@ def promo_list(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                           text=text, parse_mode='HTML', reply_markup=markup)
 
-# ---------- РАССЫЛКА ----------
 def start_mailing(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                           text="📢 <b>Рассылка</b>\n\nВведите текст сообщения для отправки всем пользователям:",
@@ -461,7 +446,6 @@ def admin_back(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                           text="👨‍💼 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыберите действие:", parse_mode='HTML', reply_markup=markup)
 
-# ---------- ПРОМОКОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ----------
 @bot.message_handler(func=lambda message: message.text == "🎟 ПРОМОКОД")
 def user_promo_start(message):
     msg = bot.send_message(message.chat.id, "📝 <b>ВВЕДИТЕ ПРОМОКОД:</b>", parse_mode='HTML')
@@ -525,7 +509,6 @@ def user_activate_promo(message):
         except:
             pass
 
-# ---------- ПОКУПКА UC ----------
 @bot.message_handler(func=lambda message: message.text == "🛒 КУПИТЬ UC")
 def buy_uc(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -635,7 +618,6 @@ def show_payment(message, order_number, player_id, uc_amount, price):
 """
     bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=markup)
 
-# ---------- ПОДТВЕРЖДЕНИЕ ОПЛАТЫ ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith('paid_'))
 def user_paid(call):
     order_number = int(call.data.split('_')[1])
@@ -807,7 +789,6 @@ def cancel_order(call):
         parse_mode='HTML'
     )
 
-# ---------- МОЙ ПРОФИЛЬ ----------
 @bot.message_handler(func=lambda message: message.text == "👤 МОЙ ПРОФИЛЬ")
 def my_profile(message):
     user_id = message.from_user.id
@@ -837,7 +818,6 @@ def my_profile(message):
 """
     bot.send_message(message.chat.id, text, parse_mode='HTML')
 
-# ---------- ЛИДЕРЫ ----------
 @bot.message_handler(func=lambda message: message.text == "🏆 ЛИДЕРЫ")
 def leaders(message):
     conn = sqlite3.connect('uc_bot.db')
@@ -860,7 +840,6 @@ def leaders(message):
 
     bot.send_message(message.chat.id, text, parse_mode='HTML')
 
-# ---------- ОТЗЫВЫ ----------
 @bot.message_handler(func=lambda message: message.text == "⭐️ ОТЗЫВЫ")
 def reviews(message):
     markup = types.InlineKeyboardMarkup()
@@ -874,7 +853,6 @@ def reviews(message):
 """
     bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=markup)
 
-# ---------- ПОДДЕРЖКА ----------
 @bot.message_handler(func=lambda message: message.text == "📞 ПОДДЕРЖКА")
 def support(message):
     markup = types.InlineKeyboardMarkup()
@@ -891,7 +869,6 @@ def support(message):
 """
     bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=markup)
 
-# ---------- ЗАПУСК ----------
 if __name__ == '__main__':
     print("🔄 Проверяю базу данных...")
     init_db()
@@ -905,4 +882,3 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"❌ Ошибка: {e}")
             time.sleep(5)
-```
