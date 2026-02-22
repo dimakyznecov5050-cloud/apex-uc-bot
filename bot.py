@@ -9,8 +9,9 @@ import time
 TOKEN = '8561596225:AAHlM8q5mVRamck9oASQjL52v_AxcTqPzGI'
 bot = telebot.TeleBot(TOKEN)
 
-# ID админа
-ADMIN_ID = 8052884471
+# ID админа - УБЕДИСЬ, ЧТО ЭТО ТВОЙ ID!
+# Чтобы узнать свой ID, напиши боту @userinfobot
+ADMIN_ID = 8052884471  # Проверь, точно ли это твой ID?
 
 # Аккаунт поддержки
 SUPPORT_USERNAME = 'Kurator111'
@@ -20,8 +21,8 @@ REVIEWS_CHANNEL = '+DpdNmcj9gAY2MThi'
 
 # Реквизиты карт
 CARDS = [
-    {'bank': 'СБЕР', 'card': '', 'recipient': 'Дмитрий'},
-    {'bank': 'ВТБ', 'card': '2200 2479 5387 8262 ', 'recipient': 'Дмитрий'}
+    {'bank': 'СБЕР', 'card': '2200 3394 8208 3478', 'recipient': 'Дмитрий'},
+    {'bank': 'ВТБ', 'card': '2203 1647 7814 6419', 'recipient': 'Дмитрий'}
 ]
 
 # Цены на UC
@@ -41,16 +42,15 @@ UC_PRICES = {
     8100: 8200
 }
 
-# Создание базы данных
+# Временное хранилище для данных (текст рассылки, активированные промокоды)
+bot_data = {}
+
+# Создание базы данных (без удаления, только если таблиц нет)
 def init_db():
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
     
-    c.execute('DROP TABLE IF EXISTS users')
-    c.execute('DROP TABLE IF EXISTS orders')
-    c.execute('DROP TABLE IF EXISTS promocodes')
-    
-    c.execute('''CREATE TABLE users
+    c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
                   first_name TEXT,
@@ -58,7 +58,7 @@ def init_db():
                   total_uc INTEGER DEFAULT 0,
                   total_orders INTEGER DEFAULT 0)''')
     
-    c.execute('''CREATE TABLE orders
+    c.execute('''CREATE TABLE IF NOT EXISTS orders
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   order_number INTEGER UNIQUE,
                   user_id INTEGER,
@@ -72,7 +72,7 @@ def init_db():
                   created_at TEXT,
                   completed_at TEXT)''')
     
-    c.execute('''CREATE TABLE promocodes
+    c.execute('''CREATE TABLE IF NOT EXISTS promocodes
                  (code TEXT PRIMARY KEY,
                   discount INTEGER,
                   max_uses INTEGER,
@@ -83,7 +83,7 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print("✅ База данных создана!")
+    print("✅ База данных проверена/создана!")
 
 # Получение следующего номера заказа
 def get_next_order_number():
@@ -104,12 +104,6 @@ def start(message):
     user_id = message.from_user.id
     username = message.from_user.username or "Нет username"
     first_name = message.from_user.first_name or "Игрок"
-    
-    # Проверяем, есть ли промокод в ссылке
-    args = message.text.split()
-    if len(args) > 1:
-        promocode = args[1].upper()
-        check_referral_promocode(user_id, promocode)
     
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
@@ -177,7 +171,6 @@ def process_promocode(message):
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
     
-    # Проверяем промокод
     c.execute("SELECT discount, max_uses, used_count, expires_at FROM promocodes WHERE code = ?", (code,))
     promo = c.fetchone()
     
@@ -188,25 +181,27 @@ def process_promocode(message):
     
     discount, max_uses, used_count, expires_at = promo
     
-    # Проверяем лимит использований
+    # Проверка лимита использований
     if max_uses > 0 and used_count >= max_uses:
         bot.send_message(message.chat.id, "❌ <b>Промокод больше не действует!</b>", parse_mode='HTML')
         conn.close()
         return
     
-    # Проверяем срок действия
-    if expires_at and datetime.now() > datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S'):
-        bot.send_message(message.chat.id, "❌ <b>Срок действия промокода истек!</b>", parse_mode='HTML')
-        conn.close()
-        return
+    # Проверка срока действия
+    if expires_at:
+        if datetime.now() > datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S'):
+            bot.send_message(message.chat.id, "❌ <b>Срок действия промокода истек!</b>", parse_mode='HTML')
+            conn.close()
+            return
     
-    # Сохраняем промокод для пользователя (временное хранилище)
+    # Увеличиваем счётчик использований
     c.execute("UPDATE promocodes SET used_count = used_count + 1 WHERE code = ?", (code,))
     conn.commit()
     conn.close()
     
-    # Сохраняем промокод в кэш (можно использовать глобальный словарь)
-    # В реальном проекте лучше сохранять в базу данных пользователя
+    # Сохраняем активированный промокод для пользователя (в оперативной памяти)
+    # В реальном проекте лучше хранить в БД, но для простоты так
+    bot_data[f"promo_{user_id}"] = {'code': code, 'discount': discount}
     
     bot.send_message(
         message.chat.id,
@@ -256,11 +251,11 @@ def admin_callback(call):
     elif action == "promocodes":
         show_promocodes_menu(call)
     elif action == "orders":
-        show_orders_menu(call)
+        bot.answer_callback_query(call.id, "В разработке")
     elif action == "users":
-        show_users_menu(call)
+        bot.answer_callback_query(call.id, "В разработке")
     elif action == "settings":
-        show_settings_menu(call)
+        bot.answer_callback_query(call.id, "В разработке")
 
 def show_admin_stats(call):
     conn = sqlite3.connect('uc_bot.db')
@@ -332,9 +327,8 @@ def show_admin_stats(call):
 
 def start_mailing(call):
     markup = types.InlineKeyboardMarkup()
-    btn_confirm = types.InlineKeyboardButton("✅ ОТПРАВИТЬ", callback_data="mailing_send")
     btn_cancel = types.InlineKeyboardButton("❌ ОТМЕНА", callback_data="back_to_admin")
-    markup.add(btn_confirm, btn_cancel)
+    markup.add(btn_cancel)
     
     msg = bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -344,7 +338,6 @@ def start_mailing(call):
         parse_mode='HTML',
         reply_markup=markup
     )
-    
     bot.register_next_step_handler(msg.message, process_mailing_text)
 
 def process_mailing_text(message):
@@ -353,8 +346,12 @@ def process_mailing_text(message):
     
     mailing_text = message.text
     
+    # Сохраняем текст во временном хранилище с уникальным ключом
+    msg_id = message.message_id
+    bot_data[f"mailing_{msg_id}"] = mailing_text
+    
     markup = types.InlineKeyboardMarkup()
-    btn_confirm = types.InlineKeyboardButton("✅ ПОДТВЕРДИТЬ", callback_data=f"mailing_confirm:{mailing_text}")
+    btn_confirm = types.InlineKeyboardButton("✅ ПОДТВЕРДИТЬ", callback_data=f"mailing_confirm:{msg_id}")
     btn_cancel = types.InlineKeyboardButton("❌ ОТМЕНА", callback_data="back_to_admin")
     markup.add(btn_confirm, btn_cancel)
     
@@ -369,9 +366,15 @@ def process_mailing_text(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('mailing_confirm:'))
 def confirm_mailing(call):
     if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав!")
         return
     
-    mailing_text = call.data.split(':', 1)[1]
+    msg_id = int(call.data.split(':')[1])
+    mailing_text = bot_data.get(f"mailing_{msg_id}")
+    
+    if not mailing_text:
+        bot.answer_callback_query(call.id, "❌ Текст рассылки не найден!")
+        return
     
     bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -395,9 +398,14 @@ def confirm_mailing(call):
         try:
             bot.send_message(user_id, mailing_text, parse_mode='HTML')
             sent_count += 1
-            time.sleep(0.05)  # Небольшая задержка чтобы не заблокировали
-        except:
+            time.sleep(0.05)
+        except Exception as e:
+            print(f"Ошибка отправки пользователю {user_id}: {e}")
             error_count += 1
+    
+    # Удаляем временные данные
+    if f"mailing_{msg_id}" in bot_data:
+        del bot_data[f"mailing_{msg_id}"]
     
     markup = types.InlineKeyboardMarkup()
     btn_back = types.InlineKeyboardButton("◀️ НАЗАД", callback_data="back_to_admin")
@@ -435,6 +443,7 @@ def show_promocodes_menu(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('promo_'))
 def promo_actions(call):
     if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав!")
         return
     
     action = call.data.split('_')[1]
@@ -574,8 +583,12 @@ def show_promo_list(call):
         for promo in promos:
             code, discount, max_uses, used, expires = promo
             status = "✅ Активен"
-            if expires and datetime.now() > datetime.strptime(expires, '%Y-%m-%d %H:%M:%S'):
-                status = "❌ Истек"
+            if expires:
+                try:
+                    if datetime.now() > datetime.strptime(expires, '%Y-%m-%d %H:%M:%S'):
+                        status = "❌ Истек"
+                except:
+                    status = "⚠️ Ошибка даты"
             text += f"• <b>{code}</b> — {discount}%\n"
             text += f"  Использовано: {used}/{max_uses if max_uses > 0 else '∞'} | {status}\n\n"
     
@@ -623,37 +636,26 @@ def process_promo_delete(message):
             reply_markup=markup
         )
 
-# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
-
-def show_orders_menu(call):
-    # Здесь можно добавить просмотр заказов
-    bot.answer_callback_query(call.id, "В разработке")
-
-def show_users_menu(call):
-    # Здесь можно добавить управление пользователями
-    bot.answer_callback_query(call.id, "В разработке")
-
-def show_settings_menu(call):
-    # Здесь можно добавить настройки
-    bot.answer_callback_query(call.id, "В разработке")
-
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_admin")
 def back_to_admin(call):
     if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав!")
         return
     
+    # Возвращаемся в админ-панель, имитируем команду /admin
     admin_panel(call.message)
 
 @bot.callback_query_handler(func=lambda call: call.data == "promo_back")
 def promo_back(call):
     if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав!")
         return
     
     show_promocodes_menu(call)
 
-# ==================== ОСТАЛЬНЫЕ ФУНКЦИИ (без изменений) ====================
+# ==================== ПОКУПКА UC ====================
+# (весь код покупки остаётся без изменений, кроме добавления применения скидки)
 
-# КУПИТЬ UC
 @bot.message_handler(func=lambda message: message.text == "🛒 КУПИТЬ UC")
 def buy_uc(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -675,28 +677,42 @@ def buy_uc(message):
         reply_markup=markup
     )
 
-# Выбор пакета
 @bot.callback_query_handler(func=lambda call: call.data.startswith('uc_'))
 def select_package(call):
     data = call.data.split('_')
     uc_amount = int(data[1])
     price = int(data[2])
     
+    # Проверяем, есть ли активированный промокод
+    user_id = call.from_user.id
+    promo_info = bot_data.get(f"promo_{user_id}")
+    final_price = price
+    discount = 0
+    promo_code = None
+    
+    if promo_info:
+        discount = promo_info['discount']
+        promo_code = promo_info['code']
+        final_price = int(price * (100 - discount) / 100)
+        # Удаляем промокод после использования (одноразово)
+        del bot_data[f"promo_{user_id}"]
+    
     msg = bot.send_message(
         call.message.chat.id,
         f"📝 <b>ВВЕДИТЕ ВАШ ID В PUBG:</b>\n\n"
         f"🎮 Пакет: {uc_amount} UC\n"
-        f"💰 Сумма: {price:,} ₽\n\n"
-        f"⚠️ <b>ВНИМАНИЕ!</b>\n"
+        f"💰 Исходная сумма: {price:,} ₽\n"
+        + (f"🎟 Скидка {discount}%: {final_price:,} ₽\n" if discount else "")
+        + f"\n⚠️ <b>ВНИМАНИЕ!</b>\n"
         f"Проверьте ID несколько раз перед отправкой!\n\n"
         f"Пример: 1234567890",
         parse_mode='HTML'
     )
     
-    bot.register_next_step_handler(msg, process_player_id, uc_amount, price)
+    # Передаём все параметры в следующий шаг
+    bot.register_next_step_handler(msg, process_player_id, uc_amount, final_price, price, discount, promo_code)
 
-# Обработка ID
-def process_player_id(message, uc_amount, price):
+def process_player_id(message, uc_amount, final_price, original_price, discount, promo_code):
     player_id = message.text.strip()
     
     if not player_id.isdigit() or len(player_id) < 5:
@@ -714,14 +730,14 @@ def process_player_id(message, uc_amount, price):
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
     c.execute("""INSERT INTO orders 
-                 (order_number, user_id, username, player_id, uc_amount, price, status, created_at)
-                 VALUES (?,?,?,?,?,?,?,?)""",
+                 (order_number, user_id, username, player_id, uc_amount, price, discount, promocode, status, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)""",
               (order_number, message.from_user.id, message.from_user.username or "Нет username", 
-               player_id, uc_amount, price, 'pending', str(datetime.now())))
+               player_id, uc_amount, final_price, discount, promo_code, 'pending', str(datetime.now())))
     conn.commit()
     conn.close()
     
-    show_payment(message, order_number, player_id, uc_amount, price)
+    show_payment(message, order_number, player_id, uc_amount, final_price)
 
 def show_payment(message, order_number, player_id, uc_amount, price):
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -814,7 +830,7 @@ def user_paid(call):
 # Подтверждение заказа (админ)
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
 def admin_confirm(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав!")
         return
     
@@ -871,7 +887,7 @@ def admin_confirm(call):
 # Отмена заказа АДМИНОМ
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_cancel_'))
 def admin_cancel(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав!")
         return
     
@@ -1025,11 +1041,10 @@ def support(message):
 
 # Запуск
 if __name__ == '__main__':
-    print("🔄 Создаю базу данных...")
+    print("🔄 Проверяю базу данных...")
     init_db()
     print("✅ БОТ ЗАПУЩЕН!")
     print(f"👤 ADMIN ID: {ADMIN_ID}")
-    print(f"📞 SUPPORT: @{SUPPORT_USERNAME}")
     print("⚡️ БОТ РАБОТАЕТ - ОТПРАВЬ /start")
     
     while True:
