@@ -6,7 +6,7 @@ from datetime import datetime
 import time
 
 # Токен бота
-TOKEN = '8498220168:AAFzsMJrlR5jNTE39JxEi3Q3inxtN0JZKlI'
+TOKEN = '8561596225:AAHlM8q5mVRamck9oASQjL52v_AxcTqPzGI'
 bot = telebot.TeleBot(TOKEN)
 
 # ID админа
