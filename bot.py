@@ -1,5 +1,3 @@
-Похоже, при активации промокода возникает ошибка, из-за которой бот не отвечает. Добавим подробное логирование в консоль и уведомление пользователя об ошибке. Вот исправленный код (замени полностью свой bot.py):
-
 ```python
 import telebot
 from telebot import types
@@ -38,19 +36,36 @@ UC_PRICES = {
     8100: 8200
 }
 
-# ---------- БАЗА ДАННЫХ ----------
+# ---------- БАЗА ДАННЫХ С МИГРАЦИЕЙ ----------
+def get_table_columns(cursor, table_name):
+    """Возвращает список имен столбцов таблицы"""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return [col[1] for col in cursor.fetchall()]
+
+def add_column_if_not_exists(cursor, table, column, col_type, default=None):
+    columns = get_table_columns(cursor, table)
+    if column not in columns:
+        try:
+            if default is not None:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type} DEFAULT {default}")
+            else:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+            print(f"✅ Добавлен столбец {column} в таблицу {table}")
+        except Exception as e:
+            print(f"Ошибка добавления столбца {column}: {e}")
+
 def init_db():
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
 
+    # Создаем таблицы, если их нет
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
                   first_name TEXT,
                   join_date TEXT,
-                  total_uc INTEGER DEFAULT 0,
-                  total_orders INTEGER DEFAULT 0)''')
-
+                  total_uc INTEGER DEFAULT 0)''')
+    
     c.execute('''CREATE TABLE IF NOT EXISTS orders
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   order_number INTEGER UNIQUE,
@@ -59,21 +74,15 @@ def init_db():
                   player_id TEXT,
                   uc_amount INTEGER,
                   price INTEGER,
-                  discount INTEGER DEFAULT 0,
-                  promocode TEXT,
                   status TEXT,
                   created_at TEXT,
                   completed_at TEXT)''')
-
+    
     c.execute('''CREATE TABLE IF NOT EXISTS promocodes
                  (code TEXT PRIMARY KEY,
                   discount INTEGER,
-                  max_uses INTEGER DEFAULT 0,
-                  used_count INTEGER DEFAULT 0,
-                  expires_at TEXT,
-                  active INTEGER DEFAULT 1,
                   created_at TEXT)''')
-
+    
     c.execute('''CREATE TABLE IF NOT EXISTS user_promos
                  (user_id INTEGER,
                   promo_code TEXT,
@@ -81,9 +90,23 @@ def init_db():
                   activated_at TEXT,
                   PRIMARY KEY (user_id, promo_code))''')
 
+    # Миграция: добавляем недостающие столбцы
+    # Для users
+    add_column_if_not_exists(c, 'users', 'total_orders', 'INTEGER', '0')
+    
+    # Для orders
+    add_column_if_not_exists(c, 'orders', 'discount', 'INTEGER', '0')
+    add_column_if_not_exists(c, 'orders', 'promocode', 'TEXT', 'NULL')
+    
+    # Для promocodes
+    add_column_if_not_exists(c, 'promocodes', 'max_uses', 'INTEGER', '0')
+    add_column_if_not_exists(c, 'promocodes', 'used_count', 'INTEGER', '0')
+    add_column_if_not_exists(c, 'promocodes', 'expires_at', 'TEXT', 'NULL')
+    add_column_if_not_exists(c, 'promocodes', 'active', 'INTEGER', '1')
+
     conn.commit()
     conn.close()
-    print("✅ База данных проверена/создана!")
+    print("✅ База данных проверена/создана, миграция выполнена.")
 
 def get_next_order_number():
     conn = sqlite3.connect('uc_bot.db')
@@ -438,7 +461,7 @@ def admin_back(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                           text="👨‍💼 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыберите действие:", parse_mode='HTML', reply_markup=markup)
 
-# ---------- ПРОМОКОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ (с защитой от ошибок) ----------
+# ---------- ПРОМОКОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ----------
 @bot.message_handler(func=lambda message: message.text == "🎟 ПРОМОКОД")
 def user_promo_start(message):
     msg = bot.send_message(message.chat.id, "📝 <b>ВВЕДИТЕ ПРОМОКОД:</b>", parse_mode='HTML')
@@ -453,7 +476,6 @@ def user_activate_promo(message):
         conn = sqlite3.connect('uc_bot.db')
         c = conn.cursor()
 
-        # Проверяем существование промокода
         c.execute("SELECT discount, max_uses, used_count, expires_at FROM promocodes WHERE code = ? AND active = 1", (code,))
         promo = c.fetchone()
         if not promo:
@@ -464,7 +486,6 @@ def user_activate_promo(message):
         discount, max_uses, used_count, expires_at = promo
         print(f"Найден промокод: скидка={discount}, max_uses={max_uses}, used={used_count}, expires={expires_at}")
 
-        # Проверка срока
         if expires_at:
             exp_date = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S')
             if datetime.now() > exp_date:
@@ -473,14 +494,12 @@ def user_activate_promo(message):
                 print("Срок истек")
                 return
 
-        # Проверка лимита
         if max_uses > 0 and used_count >= max_uses:
             bot.send_message(message.chat.id, "❌ <b>Промокод больше не действует (достигнут лимит использований)!</b>", parse_mode='HTML')
             conn.close()
             print("Лимит исчерпан")
             return
 
-        # Проверка, не активировал ли уже этот пользователь
         c.execute("SELECT * FROM user_promos WHERE user_id = ? AND promo_code = ?", (user_id, code))
         if c.fetchone():
             bot.send_message(message.chat.id, "❌ <b>Вы уже активировали этот промокод!</b>", parse_mode='HTML')
@@ -488,7 +507,6 @@ def user_activate_promo(message):
             print("Уже активирован")
             return
 
-        # Всё хорошо – активируем
         c.execute("UPDATE promocodes SET used_count = used_count + 1 WHERE code = ?", (code,))
         c.execute("INSERT INTO user_promos (user_id, promo_code, discount, activated_at) VALUES (?,?,?,?)",
                   (user_id, code, discount, str(datetime.now())))
@@ -499,7 +517,6 @@ def user_activate_promo(message):
         print("Промокод успешно активирован")
 
     except Exception as e:
-        # Если произошла любая ошибка, пишем в консоль и сообщаем пользователю
         print("Ошибка при активации промокода:")
         traceback.print_exc()
         bot.send_message(message.chat.id, "❌ Произошла внутренняя ошибка. Попробуйте позже или сообщите администратору.", parse_mode='HTML')
@@ -889,19 +906,3 @@ if __name__ == '__main__':
             print(f"❌ Ошибка: {e}")
             time.sleep(5)
 ```
-
-Что изменилось:
-
-· В функцию user_activate_promo добавлены print для отслеживания каждого шага в консоли хостинга.
-· Добавлен блок try-except, который перехватывает любые ошибки и отправляет пользователю сообщение об ошибке, а также печатает traceback в консоль.
-· Теперь, если промокод не активируется, вы увидите в логах причину (например, "Промокод не найден").
-
-Как действовать:
-
-1. Замени код в bot.py на этот.
-2. Убедись, что файл базы данных uc_bot.db существует (он создастся автоматически).
-3. Перезапусти бота.
-4. Попробуй снова активировать промокод SYSY2010. Если он не был сохранён, создай его заново через админку.
-5. После попытки зайди в логи хостинга (Bothost → Логи бота) и посмотри, что напечаталось. Это поможет понять, на каком этапе ошибка.
-
-Если ошибка повторится, пришли мне логи – разберёмся дальше.
