@@ -1,8 +1,12 @@
+Похоже, при активации промокода возникает ошибка, из-за которой бот не отвечает. Добавим подробное логирование в консоль и уведомление пользователя об ошибке. Вот исправленный код (замени полностью свой bot.py):
+
+```python
 import telebot
 from telebot import types
 import sqlite3
 from datetime import datetime, timedelta
 import time
+import traceback
 
 # ---------- НОВЫЙ ТОКЕН ----------
 TOKEN = '8561596225:AAHlM8q5mVRamck9oASQjL52v_AxcTqPzGI'
@@ -39,7 +43,6 @@ def init_db():
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
 
-    # Пользователи (обязательно с total_orders)
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
@@ -48,7 +51,6 @@ def init_db():
                   total_uc INTEGER DEFAULT 0,
                   total_orders INTEGER DEFAULT 0)''')
 
-    # Заказы
     c.execute('''CREATE TABLE IF NOT EXISTS orders
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   order_number INTEGER UNIQUE,
@@ -63,7 +65,6 @@ def init_db():
                   created_at TEXT,
                   completed_at TEXT)''')
 
-    # Промокоды
     c.execute('''CREATE TABLE IF NOT EXISTS promocodes
                  (code TEXT PRIMARY KEY,
                   discount INTEGER,
@@ -73,7 +74,6 @@ def init_db():
                   active INTEGER DEFAULT 1,
                   created_at TEXT)''')
 
-    # Активированные пользователями промокоды
     c.execute('''CREATE TABLE IF NOT EXISTS user_promos
                  (user_id INTEGER,
                   promo_code TEXT,
@@ -96,7 +96,7 @@ def get_next_order_number():
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-# ---------- ГЛАВНОЕ МЕНЮ (С КНОПКОЙ ПРОМОКОД) ----------
+# ---------- ГЛАВНОЕ МЕНЮ ----------
 def main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn1 = types.KeyboardButton("🛒 КУПИТЬ UC")
@@ -104,7 +104,7 @@ def main_keyboard():
     btn3 = types.KeyboardButton("🏆 ЛИДЕРЫ")
     btn4 = types.KeyboardButton("⭐️ ОТЗЫВЫ")
     btn5 = types.KeyboardButton("📞 ПОДДЕРЖКА")
-    btn6 = types.KeyboardButton("🎟 ПРОМОКОД")          # ← кнопка добавлена
+    btn6 = types.KeyboardButton("🎟 ПРОМОКОД")
     markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     return markup
 
@@ -117,7 +117,6 @@ def start(message):
 
     conn = sqlite3.connect('uc_bot.db')
     c = conn.cursor()
-    # Добавляем пользователя, если его нет (поля total_uc и total_orders по умолчанию 0)
     c.execute("""INSERT OR IGNORE INTO users 
                  (user_id, username, first_name, join_date, total_uc, total_orders) 
                  VALUES (?,?,?,?,?,?)""",
@@ -439,7 +438,7 @@ def admin_back(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                           text="👨‍💼 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыберите действие:", parse_mode='HTML', reply_markup=markup)
 
-# ---------- ПРОМОКОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ----------
+# ---------- ПРОМОКОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ (с защитой от ошибок) ----------
 @bot.message_handler(func=lambda message: message.text == "🎟 ПРОМОКОД")
 def user_promo_start(message):
     msg = bot.send_message(message.chat.id, "📝 <b>ВВЕДИТЕ ПРОМОКОД:</b>", parse_mode='HTML')
@@ -448,43 +447,66 @@ def user_promo_start(message):
 def user_activate_promo(message):
     code = message.text.upper().strip()
     user_id = message.from_user.id
+    print(f"Попытка активации промокода '{code}' от пользователя {user_id}")
 
-    conn = sqlite3.connect('uc_bot.db')
-    c = conn.cursor()
+    try:
+        conn = sqlite3.connect('uc_bot.db')
+        c = conn.cursor()
 
-    c.execute("SELECT discount, max_uses, used_count, expires_at FROM promocodes WHERE code = ? AND active = 1", (code,))
-    promo = c.fetchone()
-    if not promo:
-        bot.send_message(message.chat.id, "❌ <b>Промокод не найден или неактивен!</b>", parse_mode='HTML')
-        conn.close()
-        return
-    discount, max_uses, used_count, expires_at = promo
-
-    if expires_at:
-        exp_date = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S')
-        if datetime.now() > exp_date:
-            bot.send_message(message.chat.id, "❌ <b>Срок действия промокода истек!</b>", parse_mode='HTML')
+        # Проверяем существование промокода
+        c.execute("SELECT discount, max_uses, used_count, expires_at FROM promocodes WHERE code = ? AND active = 1", (code,))
+        promo = c.fetchone()
+        if not promo:
+            bot.send_message(message.chat.id, "❌ <b>Промокод не найден или неактивен!</b>", parse_mode='HTML')
             conn.close()
+            print("Промокод не найден")
+            return
+        discount, max_uses, used_count, expires_at = promo
+        print(f"Найден промокод: скидка={discount}, max_uses={max_uses}, used={used_count}, expires={expires_at}")
+
+        # Проверка срока
+        if expires_at:
+            exp_date = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S')
+            if datetime.now() > exp_date:
+                bot.send_message(message.chat.id, "❌ <b>Срок действия промокода истек!</b>", parse_mode='HTML')
+                conn.close()
+                print("Срок истек")
+                return
+
+        # Проверка лимита
+        if max_uses > 0 and used_count >= max_uses:
+            bot.send_message(message.chat.id, "❌ <b>Промокод больше не действует (достигнут лимит использований)!</b>", parse_mode='HTML')
+            conn.close()
+            print("Лимит исчерпан")
             return
 
-    if max_uses > 0 and used_count >= max_uses:
-        bot.send_message(message.chat.id, "❌ <b>Промокод больше не действует (достигнут лимит использований)!</b>", parse_mode='HTML')
+        # Проверка, не активировал ли уже этот пользователь
+        c.execute("SELECT * FROM user_promos WHERE user_id = ? AND promo_code = ?", (user_id, code))
+        if c.fetchone():
+            bot.send_message(message.chat.id, "❌ <b>Вы уже активировали этот промокод!</b>", parse_mode='HTML')
+            conn.close()
+            print("Уже активирован")
+            return
+
+        # Всё хорошо – активируем
+        c.execute("UPDATE promocodes SET used_count = used_count + 1 WHERE code = ?", (code,))
+        c.execute("INSERT INTO user_promos (user_id, promo_code, discount, activated_at) VALUES (?,?,?,?)",
+                  (user_id, code, discount, str(datetime.now())))
+        conn.commit()
         conn.close()
-        return
 
-    c.execute("SELECT * FROM user_promos WHERE user_id = ? AND promo_code = ?", (user_id, code))
-    if c.fetchone():
-        bot.send_message(message.chat.id, "❌ <b>Вы уже активировали этот промокод!</b>", parse_mode='HTML')
-        conn.close()
-        return
+        bot.send_message(message.chat.id, f"✅ <b>Промокод активирован!</b>\n🎁 Ваша скидка: {discount}%\n💰 Она будет применена при следующей покупке.", parse_mode='HTML')
+        print("Промокод успешно активирован")
 
-    c.execute("UPDATE promocodes SET used_count = used_count + 1 WHERE code = ?", (code,))
-    c.execute("INSERT INTO user_promos (user_id, promo_code, discount, activated_at) VALUES (?,?,?,?)",
-              (user_id, code, discount, str(datetime.now())))
-    conn.commit()
-    conn.close()
-
-    bot.send_message(message.chat.id, f"✅ <b>Промокод активирован!</b>\n🎁 Ваша скидка: {discount}%\n💰 Она будет применена при следующей покупке.", parse_mode='HTML')
+    except Exception as e:
+        # Если произошла любая ошибка, пишем в консоль и сообщаем пользователю
+        print("Ошибка при активации промокода:")
+        traceback.print_exc()
+        bot.send_message(message.chat.id, "❌ Произошла внутренняя ошибка. Попробуйте позже или сообщите администратору.", parse_mode='HTML')
+        try:
+            conn.close()
+        except:
+            pass
 
 # ---------- ПОКУПКА UC ----------
 @bot.message_handler(func=lambda message: message.text == "🛒 КУПИТЬ UC")
@@ -866,3 +888,20 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"❌ Ошибка: {e}")
             time.sleep(5)
+```
+
+Что изменилось:
+
+· В функцию user_activate_promo добавлены print для отслеживания каждого шага в консоли хостинга.
+· Добавлен блок try-except, который перехватывает любые ошибки и отправляет пользователю сообщение об ошибке, а также печатает traceback в консоль.
+· Теперь, если промокод не активируется, вы увидите в логах причину (например, "Промокод не найден").
+
+Как действовать:
+
+1. Замени код в bot.py на этот.
+2. Убедись, что файл базы данных uc_bot.db существует (он создастся автоматически).
+3. Перезапусти бота.
+4. Попробуй снова активировать промокод SYSY2010. Если он не был сохранён, создай его заново через админку.
+5. После попытки зайди в логи хостинга (Bothost → Логи бота) и посмотри, что напечаталось. Это поможет понять, на каком этапе ошибка.
+
+Если ошибка повторится, пришли мне логи – разберёмся дальше.
