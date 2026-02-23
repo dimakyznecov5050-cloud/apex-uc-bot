@@ -62,7 +62,7 @@ def init_db():
                   first_name TEXT,
                   join_date TEXT,
                   total_uc INTEGER DEFAULT 0)''')
-    
+
     c.execute('''CREATE TABLE IF NOT EXISTS orders
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   order_number INTEGER UNIQUE,
@@ -74,12 +74,12 @@ def init_db():
                   status TEXT,
                   created_at TEXT,
                   completed_at TEXT)''')
-    
+
     c.execute('''CREATE TABLE IF NOT EXISTS promocodes
                  (code TEXT PRIMARY KEY,
                   discount INTEGER,
                   created_at TEXT)''')
-    
+
     c.execute('''CREATE TABLE IF NOT EXISTS user_promos
                  (user_id INTEGER,
                   promo_code TEXT,
@@ -163,7 +163,9 @@ def admin_command(message):
     btn_mailing = types.InlineKeyboardButton("📢 Рассылка", callback_data="admin_mailing")
     markup.add(btn_stats, btn_promos, btn_mailing)
 
-    bot.send_message(message.chat.id, "👨‍💼 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыберите действие:", parse_mode='HTML', reply_markup=markup)
+    bot.send_message(message.chat.id, "👨‍💼 <b>АДМИН-ПАНЕЛЬ</b>
+
+Выберите действие:", parse_mode='HTML', reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
 def admin_callback(call):
@@ -240,7 +242,9 @@ def promo_create_step1(call):
         return
 
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
-                          text="🎟 <b>Создание промокода</b>\n\nВведите код промокода (например, SUMMER15):",
+                          text="🎟 <b>Создание промокода</b>
+
+Введите код промокода (например, SUMMER15):",
                           parse_mode='HTML')
     bot.register_next_step_handler(call.message, process_promo_code)
 
@@ -252,7 +256,8 @@ def process_promo_code(message):
         bot.send_message(message.chat.id, "❌ Код не может быть пустым.")
         return
 
-    bot.send_message(message.chat.id, f"Код: {code}\nТеперь введите размер скидки (число от 1 до 100):")
+    bot.send_message(message.chat.id, f"Код: {code}
+Теперь введите размер скидки (число от 1 до 100):")
     bot.register_next_step_handler(message, lambda m: process_promo_discount(m, code))
 
 def process_promo_discount(message, code):
@@ -305,7 +310,12 @@ def process_promo_expiry(message, code, discount, max_uses):
 
     expiry_text = "бессрочно" if not expires_at else f"до {expires_at[:10]}"
     uses_text = "безлимит" if max_uses == 0 else f"{max_uses} раз"
-    bot.send_message(message.chat.id, f"🎟 Промокод: <b>{code}</b>\n💰 Скидка: <b>{discount}%</b>\n📊 Лимит: {uses_text}\n⏰ Срок: {expiry_text}\n\nСохранить?",
+    bot.send_message(message.chat.id, f"🎟 Промокод: <b>{code}</b>
+💰 Скидка: <b>{discount}%</b>
+📊 Лимит: {uses_text}
+⏰ Срок: {expiry_text}
+
+Сохранить?",
                      parse_mode='HTML', reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('promo_save:'))
@@ -355,13 +365,16 @@ def promo_list(call):
     if not promos:
         text = "🎟 Промокодов пока нет."
     else:
-        text = "🎟 <b>Список промокодов:</b>\n\n"
+        text = "🎟 <b>Список промокодов:</b>
+
+"
         for p in promos:
             code, discount, max_uses, used, expires, active = p
             status = "✅ Активен" if active else "❌ Неактивен"
             expiry = "бессрочно" if not expires else f"до {expires[:10]}"
             limit = "безлимит" if max_uses == 0 else f"{max_uses}"
-            text += f"• <b>{code}</b> — {discount}% (исп. {used}/{limit}) {expiry} {status}\n"
+            text += f"• <b>{code}</b> — {discount}% (исп. {used}/{limit}) {expiry} {status}
+"
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_promos"))
@@ -370,7 +383,9 @@ def promo_list(call):
 
 def start_mailing(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
-                          text="📢 <b>Рассылка</b>\n\nВведите текст сообщения для отправки всем пользователям:",
+                          text="📢 <b>Рассылка</b>
+
+Введите текст сообщения для отправки всем пользователям:",
                           parse_mode='HTML')
     bot.register_next_step_handler(call.message, process_mailing_text)
 
@@ -387,7 +402,11 @@ def process_mailing_text(message):
     btn_no = types.InlineKeyboardButton("❌ Отмена", callback_data="mailing_cancel")
     markup.add(btn_yes, btn_no)
 
-    bot.send_message(message.chat.id, f"📢 <b>Предпросмотр рассылки:</b>\n\n{text}\n\nОтправить это сообщение всем пользователям?",
+    bot.send_message(message.chat.id, f"📢 <b>Предпросмотр рассылки:</b>
+
+{text}
+
+Отправить это сообщение всем пользователям?",
                      parse_mode='HTML', reply_markup=markup)
 
     bot.mailing_text = text
@@ -423,7 +442,11 @@ def mailing_confirm(call):
             errors += 1
 
     markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("◀️ Назад", callback_data="admin_back"))
-    bot.send_message(call.message.chat.id, f"📢 <b>Рассылка завершена!</b>\n\n✅ Успешно: {sent}\n❌ Ошибок: {errors}\n👥 Всего пользователей: {len(users)}",
+    bot.send_message(call.message.chat.id, f"📢 <b>Рассылка завершена!</b>
+
+✅ Успешно: {sent}
+❌ Ошибок: {errors}
+👥 Всего пользователей: {len(users)}",
                      parse_mode='HTML', reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "mailing_cancel")
@@ -444,12 +467,47 @@ def admin_back(call):
     markup.add(btn_stats, btn_promos, btn_mailing)
 
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
-                          text="👨‍💼 <b>АДМИН-ПАНЕЛЬ</b>\n\nВыберите действие:", parse_mode='HTML', reply_markup=markup)
+                          text="👨‍💼 <b>АДМИН-ПАНЕЛЬ</b>
+
+Выберите действие:", parse_mode='HTML', reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.text == "🎟 ПРОМОКОД")
 def user_promo_start(message):
     msg = bot.send_message(message.chat.id, "📝 <b>ВВЕДИТЕ ПРОМОКОД:</b>", parse_mode='HTML')
     bot.register_next_step_handler(msg, user_activate_promo)
+
+def _parse_expires_at(expires_at: str) -> datetime:
+    """
+    Поддерживает форматы даты из БД, включая случаи с микросекундами и без минут/секунд:
+      2026-02-23 05
+      2026-02-23 05:10
+      2026-02-23 05:10:59
+      2026-02-23 05:10:59.123456
+      2026-02-23
+      2026-02-23T05:10:59(.123456)
+    """
+    if expires_at is None:
+        raise ValueError("expires_at is None")
+
+    s = str(expires_at).strip()
+
+    # ISO с 'T' тоже принимаем
+    if "T" in s and " " not in s:
+        s = s.replace("T", " ")
+
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H",
+        "%Y-%m-%d",
+    ):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            pass
+
+    raise ValueError(f"Unsupported expires_at format: {s!r}")
 
 def user_activate_promo(message):
     code = message.text.upper().strip()
@@ -471,7 +529,7 @@ def user_activate_promo(message):
         print(f"Найден промокод: скидка={discount}, max_uses={max_uses}, used={used_count}, expires={expires_at}")
 
         if expires_at:
-            exp_date = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S')
+            exp_date = _parse_expires_at(expires_at)
             if datetime.now() > exp_date:
                 bot.send_message(message.chat.id, "❌ <b>Срок действия промокода истек!</b>", parse_mode='HTML')
                 conn.close()
@@ -497,7 +555,9 @@ def user_activate_promo(message):
         conn.commit()
         conn.close()
 
-        bot.send_message(message.chat.id, f"✅ <b>Промокод активирован!</b>\n🎁 Ваша скидка: {discount}%\n💰 Она будет применена при следующей покупке.", parse_mode='HTML')
+        bot.send_message(message.chat.id, f"✅ <b>Промокод активирован!</b>
+🎁 Ваша скидка: {discount}%
+💰 Она будет применена при следующей покупке.", parse_mode='HTML')
         print("Промокод успешно активирован")
 
     except Exception as e:
@@ -521,7 +581,9 @@ def buy_uc(message):
         ))
     markup.add(*buttons)
 
-    bot.send_message(message.chat.id, "🛒 <b>ВЫБЕРИТЕ ПАКЕТ UC:</b>\n\n👇 Нажмите на нужный пакет", parse_mode='HTML', reply_markup=markup)
+    bot.send_message(message.chat.id, "🛒 <b>ВЫБЕРИТЕ ПАКЕТ UC:</b>
+
+👇 Нажмите на нужный пакет", parse_mode='HTML', reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('uc_'))
 def select_package(call):
@@ -545,12 +607,21 @@ def select_package(call):
 
     msg = bot.send_message(
         call.message.chat.id,
-        f"📝 <b>ВВЕДИТЕ ВАШ ID В PUBG:</b>\n\n"
-        f"🎮 Пакет: {uc_amount} UC\n"
-        f"💰 Исходная сумма: {price:,} ₽\n"
-        + (f"🎟 Скидка {discount}%: {final_price:,} ₽\n" if discount else "")
-        + f"\n⚠️ <b>ВНИМАНИЕ!</b>\n"
-        f"Проверьте ID несколько раз перед отправкой!\n\n"
+        f"📝 <b>ВВЕДИТЕ ВАШ ID В PUBG:</b>
+
+"
+        f"🎮 Пакет: {uc_amount} UC
+"
+        f"💰 Исходная сумма: {price:,} ₽
+"
+        + (f"🎟 Скидка {discount}%: {final_price:,} ₽
+" if discount else "")
+        + f"
+⚠️ <b>ВНИМАНИЕ!</b>
+"
+        f"Проверьте ID несколько раз перед отправкой!
+
+"
         f"Пример: 1234567890",
         parse_mode='HTML'
     )
@@ -561,7 +632,10 @@ def process_player_id(message, uc_amount, final_price, original_price, discount,
     player_id = message.text.strip()
 
     if not player_id.isdigit() or len(player_id) < 5:
-        bot.send_message(message.chat.id, "❌ <b>ОШИБКА!</b>\n\nВведите корректный ID (только цифры, минимум 5 цифр).\nПопробуйте снова через 🛒 КУПИТЬ UC", parse_mode='HTML')
+        bot.send_message(message.chat.id, "❌ <b>ОШИБКА!</b>
+
+Введите корректный ID (только цифры, минимум 5 цифр).
+Попробуйте снова через 🛒 КУПИТЬ UC", parse_mode='HTML')
         return
 
     order_number = get_next_order_number()
@@ -599,13 +673,15 @@ def show_payment(message, order_number, player_id, uc_amount, price):
 • Сумма: {price_str} ₽
 • ID: {player_id}
 
-💳 <b>РЕКВИЗИТЫ ДЛЯ ОПЛАТЫ:</b>\n
+💳 <b>РЕКВИЗИТЫ ДЛЯ ОПЛАТЫ:</b>
+
 """
     for card in CARDS:
         text += f"""
 🏦 {card['bank']}
 💳 Карта: <code>{card['card']}</code>
-👤 Получатель: {card['recipient']}\n"""
+👤 Получатель: {card['recipient']}
+"""
 
     text += f"""
 💰 <b>Сумма: {price_str} ₽ (на любую карту)</b>
@@ -656,12 +732,20 @@ def user_paid(call):
         try:
             bot.send_message(
                 ADMIN_ID,
-                f"💰 <b>ПОДТВЕРЖДЕНИЕ ОПЛАТЫ №{order_number}</b> 💰\n\n"
-                f"👤 Пользователь: @{username}\n"
-                f"🆔 User ID: <code>{user_id}</code>\n"
-                f"🎮 Пакет: {uc_amount} UC\n"
-                f"💰 Сумма: {price_str} ₽\n"
-                f"🆔 Player ID: {player_id}\n\n"
+                f"💰 <b>ПОДТВЕРЖДЕНИЕ ОПЛАТЫ №{order_number}</b> 💰
+
+"
+                f"👤 Пользователь: @{username}
+"
+                f"🆔 User ID: <code>{user_id}</code>
+"
+                f"🎮 Пакет: {uc_amount} UC
+"
+                f"💰 Сумма: {price_str} ₽
+"
+                f"🆔 Player ID: {player_id}
+
+"
                 f"👇 <b>Выберите действие:</b>",
                 parse_mode='HTML',
                 reply_markup=markup_admin
@@ -718,7 +802,9 @@ def admin_confirm(call):
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text=f"✅ <b>ЗАКАЗ №{order_number} ПОДТВЕРЖДЕН!</b>\n\nUC успешно выданы.",
+                text=f"✅ <b>ЗАКАЗ №{order_number} ПОДТВЕРЖДЕН!</b>
+
+UC успешно выданы.",
                 parse_mode='HTML'
             )
 
@@ -829,14 +915,19 @@ def leaders(message):
     conn.close()
 
     if not leaders_list:
-        bot.send_message(message.chat.id, "🏆 <b>ЛИДЕРОВ ПОКА НЕТ</b>\n\nСделайте первый заказ и попадите в топ!", parse_mode='HTML')
+        bot.send_message(message.chat.id, "🏆 <b>ЛИДЕРОВ ПОКА НЕТ</b>
+
+Сделайте первый заказ и попадите в топ!", parse_mode='HTML')
         return
 
-    text = "🏆 <b>ТОП-10 ПОКУПАТЕЛЕЙ (по количеству UC)</b>\n\n"
+    text = "🏆 <b>ТОП-10 ПОКУПАТЕЛЕЙ (по количеству UC)</b>
+
+"
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
     for i, leader in enumerate(leaders_list):
         first_name, total_uc = leader
-        text += f"{medals[i]} {first_name} — {total_uc} UC\n"
+        text += f"{medals[i]} {first_name} — {total_uc} UC
+"
 
     bot.send_message(message.chat.id, text, parse_mode='HTML')
 
